@@ -121,6 +121,7 @@ All of this runs on a Mac; `swift test` needs nothing else.
 | **iOS app ↔ xara iOS app (LAN)** | Both apps in one simulator (iPhone 17 Pro, iOS 27), xara started with *Accept clients on the local network*, then sent to the background by opening Gateway. Gateway connected to `192.168.10.234:8300` (the Mac's LAN address; the simulator shares its network): `VERSION VARA HF v4.9.0`, every setup command `OK`, `CONNECT N0TST N9ZZZ` (state *calling N9ZZZ*, BUSY reported), Abort. xara kept running and listening throughout | pass |
 | **macOS app ↔ installed `xara` (0.1.1)** | `xara --call N1TST --capture NMAudioDevice_UID --playback NMAudioDevice_UID --port 18300 --kiss-port off` running; the Mac app opened it, all setup commands `OK`, `CONNECT N0TST N9ZZZ`, xara logged `tx c26 Calling` with PTT | pass |
 | **macOS auto-start** | Nothing on 18300, Xara.app installed (serving 8300 only): Gateway opened `xara://start`, waited 10 s, fell back to `~/.cargo/bin/xara` with the Settings command line, and placed the call. Quitting left xara running; with *Stop xara when Gateway quits* on, it stopped the xara it had started and left Xara.app alone | pass |
+| **macOS cold start of Xara.app** | Run by the user: Xara.app quit, the Mac Gateway (call NR5P, modem 127.0.0.1:8300) pressed Connect. Gateway opened `xara://start`; a fresh Xara.app process came up on 127.0.0.1:8300/8301 and Gateway connected to both ports (checked with `lsof`) | pass |
 | **The app in the iOS simulator** | The iOS app (iPhone 17 Pro, iOS 27) on the airlink against `test-gateway --password SECRET`: the call linked (`CONNECTED N0TST N1RMS 2300`). With a wrong password the gateway refused the secure login and the app said *Login failed*. With the right one, the message composed in the app was delivered, the gateway's message arrived in the Inbox, and the Outbox emptied | pass |
 | Builds | `xcodebuild` for macOS, iOS Simulator and an iOS device (signed with team G4GK5372G8) | pass |
 
@@ -170,9 +171,6 @@ handshake, which is why the airlink tool exists.
 - **The live Winlink CMS**, over telnet or through a gateway. Only scripted CMS sessions were run.
   The first real login will show whether the CMS accepts the `Gateway` SID.
 - **Either app on a real device.** Everything above ran in the simulator or on this Mac.
-- **Xara.app cold start.** Gateway's `xara://start` launch ran, but Xara.app was already running
-  (serving another port), so that session went through the CLI fallback. Starting Xara.app from
-  not-running was not tried, because it was in use.
 - **The Mac app driven by clicking.** No desktop-automation tool was available, so the Mac app was
   run through its `-autoConnect` hook; the same views were driven by hand in the iOS simulator.
 - **Real VARA (Windows).** The client only does what Pat does, and it treats a missing reply to
