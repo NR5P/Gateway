@@ -10,7 +10,7 @@ and model code is shared.
 <p>
 <img src="docs/connected.png" width="240" alt="iPhone: Connect screen, linked to a gateway over VARA HF">
 <img src="docs/inbox.png" width="240" alt="iPhone: Inbox with a message received over the link">
-<img src="docs/ios-xara-log.png" width="240" alt="iPhone: session log against the xara iOS app">
+<img src="docs/ios-xara-loopback.png" width="240" alt="iPhone: calling through the xara iOS app on 127.0.0.1">
 </p>
 <p><img src="docs/mac.png" width="600" alt="The macOS app"></p>
 
@@ -117,6 +117,7 @@ All of this runs on a Mac; `swift test` needs nothing else.
 | Telnet login | CMS prompts against a scripted server, including bytes arriving with the password prompt | pass |
 | VARA client vs the **real xara binary** | `XARA_CMD_PORT=18300 swift test`: `VERSION` (`VARA HF v4.9.0`), `PUBLIC`/`CWID`/`COMPRESSION`/`MYCALL`/`LISTEN OFF`/`BW2300`/`WINLINK SESSION` all `OK`, `CONNECT` keys the transmitter (`PTT ON`), cancel sends `ABORT`, modem back to idle | pass |
 | **B2F over a VARA ARQ link between two xara modems** | `tools/xara-airlink` links two xara modems through simulated audio, each with real VARA TCP ports. Our client calls N2TST, our master-side session answers through `LISTEN ON`, and a message goes each way (one with an attachment), with `BUFFER` flow control and `DISCONNECT`/`DISCONNECTED` | pass (~2 min) |
+| **iOS app ↔ xara iOS app (127.0.0.1)** | Both apps in one simulator; xara (local clients only) bound 127.0.0.1:8300/8301 after the Mac's modem freed the port. Gateway opened in front, xara in the background: both ports connected (checked with `lsof`), every setup command `OK`, `CONNECT N0TST N9ZZZ` (*calling N9ZZZ*, BUSY), Abort. xara kept running and listening afterwards | pass |
 | **iOS app ↔ xara iOS app (LAN)** | Both apps in one simulator (iPhone 17 Pro, iOS 27), xara started with *Accept clients on the local network*, then sent to the background by opening Gateway. Gateway connected to `192.168.10.234:8300` (the Mac's LAN address; the simulator shares its network): `VERSION VARA HF v4.9.0`, every setup command `OK`, `CONNECT N0TST N9ZZZ` (state *calling N9ZZZ*, BUSY reported), Abort. xara kept running and listening throughout | pass |
 | **macOS app ↔ installed `xara` (0.1.1)** | `xara --call N1TST --capture NMAudioDevice_UID --playback NMAudioDevice_UID --port 18300 --kiss-port off` running; the Mac app opened it, all setup commands `OK`, `CONNECT N0TST N9ZZZ`, xara logged `tx c26 Calling` with PTT | pass |
 | **macOS auto-start** | Nothing on 18300, Xara.app installed (serving 8300 only): Gateway opened `xara://start`, waited 10 s, fell back to `~/.cargo/bin/xara` with the Settings command line, and placed the call. Quitting left xara running; with *Stop xara when Gateway quits* on, it stopped the xara it had started and left Xara.app alone | pass |
@@ -168,11 +169,10 @@ handshake, which is why the airlink tool exists.
   the gateway side was our own B2F master, not RMS Trimode.
 - **The live Winlink CMS**, over telnet or through a gateway. Only scripted CMS sessions were run.
   The first real login will show whether the CMS accepts the `Gateway` SID.
-- **The xara iOS app over `127.0.0.1`.** In the simulator, 127.0.0.1:8300 belongs to whatever
-  modem on the Mac holds it (here Xara.app), so this was tested over the LAN address instead.
-  On a real phone 127.0.0.1 is the phone itself. Neither app has run on a device yet.
-- **Xara.app answering `xara://start` end to end.** Gateway's URL launch ran, but Xara.app was
-  already serving another port, so the session went through the CLI fallback.
+- **Either app on a real device.** Everything above ran in the simulator or on this Mac.
+- **Xara.app cold start.** Gateway's `xara://start` launch ran, but Xara.app was already running
+  (serving another port), so that session went through the CLI fallback. Starting Xara.app from
+  not-running was not tried, because it was in use.
 - **The Mac app driven by clicking.** No desktop-automation tool was available, so the Mac app was
   run through its `-autoConnect` hook; the same views were driven by hand in the iOS simulator.
 - **Real VARA (Windows).** The client only does what Pat does, and it treats a missing reply to
