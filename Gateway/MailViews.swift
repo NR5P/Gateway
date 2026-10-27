@@ -116,10 +116,10 @@ struct MessageView: View {
             .padding()
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .navigationBarTitleDisplayMode(.inline)
+        .inlineTitle()
         .onAppear { store.markRead(stored) }
         .toolbar {
-            ToolbarItemGroup(placement: .bottomBar) {
+            ToolbarItemGroup(placement: .messageActions) {
                 Button { composing = .reply(to: m, all: false) } label: { Label("Reply", systemImage: "arrowshape.turn.up.left") }
                 Button { composing = .reply(to: m, all: true) } label: { Label("Reply all", systemImage: "arrowshape.turn.up.left.2") }
                 Button { composing = .forward(m) } label: { Label("Forward", systemImage: "arrowshape.turn.up.right") }
@@ -228,9 +228,9 @@ struct ComposeView: View {
             Form {
                 Section {
                     TextField("To (call sign or email)", text: $draft.to)
-                        .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.emailAddress)
+                        .input(.email)
                     TextField("Cc", text: $draft.cc)
-                        .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.emailAddress)
+                        .input(.email)
                     TextField("Subject", text: $draft.subject)
                 }
                 Section {
@@ -255,8 +255,9 @@ struct ComposeView: View {
                 }
                 if let error { Section { Text(error).foregroundStyle(.red) } }
             }
+            .groupedForm()
             .navigationTitle(draft.replacing == nil ? "New Message" : "Edit Message")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {

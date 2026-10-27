@@ -22,6 +22,11 @@ final class AppSettings: ObservableObject {
     @AppStorage("cmsHost") var cmsHost = CMSTelnet.host
     @AppStorage("cmsPort") var cmsPort = Int(CMSTelnet.port)
     @AppStorage("recentGateways") private var recentGatewaysRaw = ""
+    #if os(macOS)
+    /// How to start the xara command when no modem answers locally and Xara.app is not installed.
+    @AppStorage("modemCommand") var modemCommand = ModemLauncher.defaultCommandLine
+    @AppStorage("stopModemOnQuit") var stopModemOnQuit = false
+    #endif
 
     var mycall: String { callsign.trimmingCharacters(in: .whitespaces).uppercased() }
 

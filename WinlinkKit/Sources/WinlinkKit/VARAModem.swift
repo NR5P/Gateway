@@ -187,9 +187,17 @@ public final class VARAModem: @unchecked Sendable {
         }
     }
 
-    private func required(_ line: String) async throws {
-        let r = try await command(line)
-        if r == "WRONG" { throw VARAError.rejected(line) }
+    /// A command that must succeed. xara (like VARA) refuses MYCALL and BW while a link is still
+    /// closing, for example one left by a client that went away, so retry for a while.
+    private func required(_ line: String, attempts: Int = 10) async throws {
+        for i in 1...attempts {
+            if try await command(line) != "WRONG" { return }
+            if i < attempts {
+                onEvent(.line("(modem busy, retrying \(line))", outbound: false))
+                try await Task.sleep(nanoseconds: 1_500_000_000)
+            }
+        }
+        throw VARAError.rejected(line)
     }
 
     /// Commands some modems do not know; a WRONG or no answer is only logged.
@@ -291,7 +299,7 @@ public final class VARAModem: @unchecked Sendable {
             link = conn
         }
         do {
-            try await required("LISTEN ON")
+            try await required("LISTEN ON", attempts: 1)
             let reply = try await waitFor({ $0.hasPrefix("CONNECTED ") }, timeout: timeout, what: "an incoming call") {}
             let p = reply.split(separator: " ")
             conn.remote = p.count > 1 ? String(p[1]) : ""

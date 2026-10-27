@@ -1,26 +1,32 @@
-# XaraMail: an open-source Winlink client for iPhone
+# Gateway: an open-source Winlink client for iPhone and Mac
 
-XaraMail sends and receives Winlink radio email from an iPhone. Over the air it talks to a
-Winlink gateway (RMS) through a **VARA modem over TCP**: [xara](../xara) running on the same
-phone (`127.0.0.1`), or xara/VARA on a computer on your network. It can also reach the Winlink
-CMS over the internet by telnet.
+Gateway sends and receives Winlink radio email. Over the air it talks to a Winlink gateway (RMS)
+through a **VARA modem over TCP**: [xara](../xara) on the same device (`127.0.0.1`: the xara
+iPhone app, or the `xara` command / Xara.app on a Mac), or xara/VARA elsewhere on your network.
+It can also reach the Winlink CMS over the internet by telnet. One SwiftUI target builds both the
+iOS app (`com.nr5p.gateway`) and the macOS app (`com.nr5p.gateway.mac`); all protocol, transport
+and model code is shared.
 
 <p>
-<img src="docs/connected.png" width="280" alt="Connect screen, linked to a gateway over VARA HF">
-<img src="docs/inbox.png" width="280" alt="Inbox with a message received over the link">
+<img src="docs/connected.png" width="240" alt="iPhone: Connect screen, linked to a gateway over VARA HF">
+<img src="docs/inbox.png" width="240" alt="iPhone: Inbox with a message received over the link">
+<img src="docs/ios-xara-log.png" width="240" alt="iPhone: session log against the xara iOS app">
 </p>
+<p><img src="docs/mac.png" width="600" alt="The macOS app"></p>
 
 - **Mail**: Inbox, Outbox, Sent, Drafts; compose with To/Cc/Subject/body and file attachments;
   reply, reply-all, forward; attachments open through the share sheet.
 - **Connect**: VARA HF (500/2300/2750 Hz) or VARA FM, gateway call sign (recent ones are
   remembered), live PTT/BUSY/link state, transfer progress, Abort; or Telnet to the CMS.
-- **Settings**: call sign, grid locator, Winlink password (iOS Keychain, this device only),
-  modem host and command port (data port = command port + 1), CMS host/port.
+- **Settings**: call sign, grid locator, Winlink password (Keychain, this device only),
+  modem host and command port (data port = command port + 1), CMS host/port; on the Mac, the
+  command used to start xara and whether to stop it on quit.
 - **Session log**: B2F protocol lines and modem commands, shareable.
 
-It is MIT-licensed and has no third-party dependencies.
+Everything is Swift: no Go, Rust or other runtime is linked into either app, and there are no
+third-party dependencies. MIT licence.
 
-## Why a Swift port and not gomobile
+## Why a Swift port, not gomobile
 
 Pat (Go) and its protocol library [wl2k-go](https://github.com/la5nta/wl2k-go) are the mature
 open-source Winlink stack, and both are MIT-licensed (no GPL, so App Store distribution is fine).
@@ -42,8 +48,10 @@ The VARA command sequence follows Pat's VARA driver
 ## Layout
 
 ```
-XaraMail.xcodeproj      iOS 17+ app, Swift 5 mode, team G4GK5372G8, bundle id com.nr5p.xaramail
-XaraMail/               SwiftUI app: mail store, session controller, views
+Gateway.xcodeproj       one multiplatform app target: iOS 17+ and macOS 14+, Swift 5 mode,
+                        team G4GK5372G8, bundle ids com.nr5p.gateway / com.nr5p.gateway.mac
+Gateway/                SwiftUI app: mail store, session controller, views, Platform.swift
+                        (iOS/macOS differences), ModemLauncher.swift (macOS: start xara)
 WinlinkKit/             Swift package: the protocol and transports
   Sources/WinlinkKit/
     LZHUF.swift           LZHUF compression with the B2 CRC16 header
@@ -55,27 +63,43 @@ WinlinkKit/             Swift package: the protocol and transports
     Telnet.swift          CMS telnet login
   Sources/TestGateway/  `test-gateway`: a stand-in RMS that answers VARA calls (macOS)
   Tests/                unit tests and live-xara integration tests
+tools/make-icons.swift  draws the app icons (iOS 1024 px, macOS 16-1024 px)
 tools/xara-airlink/     two xara modems linked by simulated audio, for end-to-end tests
 ```
 
 ## Using it with xara
 
-**On the same phone.** Start the xara iOS app (it keeps running in the background with
-background audio), connect the radio interface, then in XaraMail:
+**iPhone, xara on the same phone.** Start the xara iOS app (it keeps running in the background
+with background audio), connect the radio interface and tap Start. Then in Gateway:
 
 1. Settings: your call sign, grid, Winlink password. Modem host `127.0.0.1`, port `8300`.
 2. Compose a message; it waits in the Outbox.
 3. Connect: VARA HF (or FM), the gateway's call sign (e.g. from the Winlink RMS list), bandwidth,
-   then **Connect**. The app sends `MYCALL`, `BW…`, `CONNECT <you> <gateway>`, waits for
+   then **Connect**. Gateway sends `MYCALL`, `BW…`, `CONNECT <you> <gateway>`, waits for
    `CONNECTED`, runs the B2F exchange (secure login, sends your Outbox, downloads your mail), and
    disconnects.
 
-Keep XaraMail in the foreground while it is connected (it keeps the screen awake); iOS suspends
-apps that are not playing audio, and a suspended client drops the session.
+Keep Gateway in the foreground while connected (it keeps the screen awake): iOS suspends apps
+that are not playing audio, and a suspended client drops the session.
 
-**On another computer.** Run xara (or VARA) there with its command port reachable on the LAN,
-e.g. `xara --call YOURCALL --hf 2300 --addr 0.0.0.0 --port 8300 ...`, and set the modem host in
-Settings to that machine's address. iOS asks for local-network permission the first time.
+**Mac.** Leave the modem host at `127.0.0.1`. When nothing answers on the command port, Gateway
+starts xara itself:
+
+1. if Xara.app (`io.github.x0rro.xara.mac`) is installed, it opens `xara://start` and waits up to
+   10 s for the port;
+2. otherwise, or if Xara.app does not answer on that port, it runs the `xara` command (from
+   `~/.cargo/bin`, `/opt/homebrew/bin` or `/usr/local/bin`) with the command line in Settings,
+   `{call}` and `{port}` filled in, logging to `~/Library/Logs/Gateway/xara.log`. Name your
+   radio's audio interface there (`xara --list-devices`); xara refuses to transmit into the
+   default output.
+
+If neither exists it says so. The modem keeps running when Gateway quits, since other clients
+may use it; *Stop xara when Gateway quits* stops only a modem Gateway itself started. The Mac app
+is not sandboxed, because it may need to run the `xara` command.
+
+**Another machine.** Point the modem host at it: xara on a Mac/Linux box
+(`--addr 0.0.0.0`), or the xara iPhone app with *Accept clients on the local network* on.
+iOS asks for local-network permission the first time.
 
 **Telnet.** Pick *Telnet (internet)* on the Connect tab: it logs in to `server.winlink.org:8772`
 and runs the same exchange with no radio.
@@ -93,8 +117,11 @@ All of this runs on a Mac; `swift test` needs nothing else.
 | Telnet login | CMS prompts against a scripted server, including bytes arriving with the password prompt | pass |
 | VARA client vs the **real xara binary** | `XARA_CMD_PORT=18300 swift test`: `VERSION` (`VARA HF v4.9.0`), `PUBLIC`/`CWID`/`COMPRESSION`/`MYCALL`/`LISTEN OFF`/`BW2300`/`WINLINK SESSION` all `OK`, `CONNECT` keys the transmitter (`PTT ON`), cancel sends `ABORT`, modem back to idle | pass |
 | **B2F over a VARA ARQ link between two xara modems** | `tools/xara-airlink` links two xara modems through simulated audio, each with real VARA TCP ports. Our client calls N2TST, our master-side session answers through `LISTEN ON`, and a message goes each way (one with an attachment), with `BUFFER` flow control and `DISCONNECT`/`DISCONNECTED` | pass (~2 min) |
-| **The app in the iOS simulator** | XaraMail (iPhone 17 Pro, iOS 27) on the airlink against `test-gateway --password SECRET`: the call linked (`CONNECTED N0TST N1RMS 2300`). With a wrong password the gateway refused the secure login and the app said *Login failed*. With the right one, the message composed in the app was delivered, the gateway's message arrived in the Inbox, and the Outbox emptied | pass |
-| Builds | `xcodebuild` for iOS Simulator and for a device (signed with team G4GK5372G8) | pass |
+| **iOS app ↔ xara iOS app (LAN)** | Both apps in one simulator (iPhone 17 Pro, iOS 27), xara started with *Accept clients on the local network*, then sent to the background by opening Gateway. Gateway connected to `192.168.10.234:8300` (the Mac's LAN address; the simulator shares its network): `VERSION VARA HF v4.9.0`, every setup command `OK`, `CONNECT N0TST N9ZZZ` (state *calling N9ZZZ*, BUSY reported), Abort. xara kept running and listening throughout | pass |
+| **macOS app ↔ installed `xara` (0.1.1)** | `xara --call N1TST --capture NMAudioDevice_UID --playback NMAudioDevice_UID --port 18300 --kiss-port off` running; the Mac app opened it, all setup commands `OK`, `CONNECT N0TST N9ZZZ`, xara logged `tx c26 Calling` with PTT | pass |
+| **macOS auto-start** | Nothing on 18300, Xara.app installed (serving 8300 only): Gateway opened `xara://start`, waited 10 s, fell back to `~/.cargo/bin/xara` with the Settings command line, and placed the call. Quitting left xara running; with *Stop xara when Gateway quits* on, it stopped the xara it had started and left Xara.app alone | pass |
+| **The app in the iOS simulator** | The iOS app (iPhone 17 Pro, iOS 27) on the airlink against `test-gateway --password SECRET`: the call linked (`CONNECTED N0TST N1RMS 2300`). With a wrong password the gateway refused the secure login and the app said *Login failed*. With the right one, the message composed in the app was delivered, the gateway's message arrived in the Inbox, and the Outbox emptied | pass |
+| Builds | `xcodebuild` for macOS, iOS Simulator and an iOS device (signed with team G4GK5372G8) | pass |
 
 ### Running the tests
 
@@ -116,6 +143,13 @@ cd tools/xara-airlink && cargo build --release && ./target/release/xara-airlink 
 cd WinlinkKit && XARA_CMD_PORT=18300 XARA_AIRLINK=18500,18600 swift test
 ```
 
+The Mac app has a Debug-only test hook: launched with `-autoConnect` it starts a session with
+its saved settings, and Debug builds copy the session log to stderr:
+
+```sh
+build/dd/Build/Products/Debug/Gateway.app/Contents/MacOS/Gateway -autoConnect
+```
+
 To try the app against the airlink, run a stand-in gateway on station B and point the app
 (Settings → port `18500`, gateway `N1RMS`) at station A:
 
@@ -133,9 +167,14 @@ handshake, which is why the airlink tool exists.
   a licence, a Winlink account and a gateway in range. Everything up to the audio is tested above;
   the gateway side was our own B2F master, not RMS Trimode.
 - **The live Winlink CMS**, over telnet or through a gateway. Only scripted CMS sessions were run.
-  The first real login will show whether the CMS accepts the `XaraMail` SID.
-- **xara running on the same iPhone**, with both apps switching between foreground and background.
-  In the simulator the app reached xara on the Mac through `127.0.0.1`.
+  The first real login will show whether the CMS accepts the `Gateway` SID.
+- **The xara iOS app over `127.0.0.1`.** In the simulator, 127.0.0.1:8300 belongs to whatever
+  modem on the Mac holds it (here Xara.app), so this was tested over the LAN address instead.
+  On a real phone 127.0.0.1 is the phone itself. Neither app has run on a device yet.
+- **Xara.app answering `xara://start` end to end.** Gateway's URL launch ran, but Xara.app was
+  already serving another port, so the session went through the CLI fallback.
+- **The Mac app driven by clicking.** No desktop-automation tool was available, so the Mac app was
+  run through its `-autoConnect` hook; the same views were driven by hand in the iOS simulator.
 - **Real VARA (Windows).** The client only does what Pat does, and it treats a missing reply to
   `PUBLIC`/`CWID`/`COMPRESSION`/`LISTEN` as harmless, but it was only run against xara.
 - **VARA FM against xara**, P2P sessions from the app, and B2F resume offsets (parsed and honoured
@@ -144,6 +183,8 @@ handshake, which is why the airlink tool exists.
 
 ## Notes
 
-- The B2F SID sent is `[XaraMail-<version>-B2FHM$]`.
+- The B2F SID sent is `[Gateway-<version>-B2FHM$]`.
+- xara (like VARA) answers `WRONG` to `MYCALL`/`BW` while a link is still closing, for example
+  one left by a client that went away; Gateway retries those for up to 15 s.
 - Messages are stored as raw B2F files under Application Support/Mail/<folder>.
 - `WinlinkKit` builds with `-O` even in Debug, because LZHUF walks a tree for every byte.

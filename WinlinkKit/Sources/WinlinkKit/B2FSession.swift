@@ -88,7 +88,7 @@ public final class B2FSession {
     /// Send ";FW:" in the handshake. A CMS-like master leaves it out, which tells the
     /// client it may hand over mail for anyone.
     public var announceForwarders = true
-    public var userAgent = UserAgent(name: "XaraMail", version: "1.0")
+    public var userAgent = UserAgent(name: "Gateway", version: "1.0")
     /// The Winlink password for an address (the first is mycall). Nil means none known.
     public var password: (Address) -> String? = { _ in nil }
     public var onEvent: (SessionEvent) -> Void = { _ in }

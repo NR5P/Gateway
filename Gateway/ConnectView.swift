@@ -17,9 +17,9 @@ struct ConnectView: View {
                     .pickerStyle(.segmented)
                 }
                 if settings.transportKind == .vara {
-                    Section("Gateway") {
+                    Section("RMS gateway") {
                         TextField("RMS call sign, e.g. W1AW-10", text: $settings.gateway)
-                            .textInputAutocapitalization(.characters).autocorrectionDisabled()
+                            .input(.callsign)
                         if !settings.recentGateways.isEmpty {
                             ScrollView(.horizontal, showsIndicators: false) {
                                 HStack {
@@ -50,7 +50,11 @@ struct ConnectView: View {
                             Text(stateText).font(.caption).foregroundStyle(.secondary)
                         }
                     } footer: {
+                        #if os(macOS)
+                        Text("Gateway starts xara on this Mac if it is not running. Or point Settings at a modem elsewhere on your network.")
+                        #else
                         Text("Run xara on this phone (or another machine on your network) and point Settings at it. Keep this app open while connected.")
+                        #endif
                     }
                 } else {
                     Section {
@@ -86,6 +90,7 @@ struct ConnectView: View {
                     NavigationLink("Session log (\(session.log.count))") { LogView() }
                 }
             }
+            .groupedForm()
             .navigationTitle("Connect")
         }
     }
@@ -178,16 +183,16 @@ struct SettingsView: View {
             Form {
                 Section("Station") {
                     TextField("Call sign", text: $settings.callsign)
-                        .textInputAutocapitalization(.characters).autocorrectionDisabled()
+                        .input(.callsign)
                     TextField("Grid locator (e.g. EM10)", text: $settings.locator)
-                        .textInputAutocapitalization(.characters).autocorrectionDisabled()
+                        .input(.callsign)
                 }
                 Section {
                     HStack {
                         Group {
                             if showPassword { TextField("Winlink password", text: $password) } else { SecureField("Winlink password", text: $password) }
                         }
-                        .textInputAutocapitalization(.never).autocorrectionDisabled()
+                        .input(.plain)
                         .onSubmit { settings.password = password }
                         Button { showPassword.toggle() } label: { Image(systemName: showPassword ? "eye.slash" : "eye") }
                             .buttonStyle(.borderless)
@@ -200,25 +205,42 @@ struct SettingsView: View {
                 }
                 Section {
                     TextField("Host", text: $settings.modemHost)
-                        .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
+                        .input(.url)
                     TextField("Command port", value: $settings.modemPort, format: .number.grouping(.never))
-                        .keyboardType(.numberPad)
+                        .input(.number)
                     LabeledContent("Data port", value: "\(settings.modemPort + 1)")
                 } header: {
                     Text("VARA modem")
                 } footer: {
+                    #if os(macOS)
+                    Text("127.0.0.1 is xara on this Mac. Use a LAN address for xara (or VARA) on another machine, such as the xara iPhone app with local-network clients allowed.")
+                    #else
                     Text("127.0.0.1 is xara running on this phone. Use a LAN address for xara or VARA on another computer.")
+                    #endif
                 }
+                #if os(macOS)
+                Section {
+                    TextField("Command", text: $settings.modemCommand, axis: .vertical)
+                        .font(.body.monospaced()).input(.plain)
+                    Toggle("Stop xara when Gateway quits", isOn: $settings.stopModemOnQuit)
+                    Button("Reset to default") { settings.modemCommand = ModemLauncher.defaultCommandLine }
+                } header: {
+                    Text("Start xara automatically")
+                } footer: {
+                    Text("When the modem host is 127.0.0.1 and nothing answers, Gateway opens Xara.app (xara://start) or, if it is not installed, runs this command. {call} and {port} are filled in; name your radio's audio interface (xara --list-devices). Output goes to ~/Library/Logs/Gateway/xara.log.")
+                }
+                #endif
                 Section("Winlink CMS (telnet)") {
                     TextField("Host", text: $settings.cmsHost)
-                        .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
-                    TextField("Port", value: $settings.cmsPort, format: .number.grouping(.never)).keyboardType(.numberPad)
+                        .input(.url)
+                    TextField("Port", value: $settings.cmsPort, format: .number.grouping(.never)).input(.number)
                 }
                 Section {
-                    Text("XaraMail \(Bundle.main.shortVersion). B2F protocol code ported from wl2k-go by Martin Hebnes Pedersen (LA5NTA), MIT licence.")
+                    Text("Gateway \(Bundle.main.shortVersion). B2F protocol code ported from wl2k-go by Martin Hebnes Pedersen (LA5NTA), MIT licence.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
             }
+            .groupedForm()
             .navigationTitle("Settings")
             .onAppear { password = settings.password }
             .onChange(of: settings.callsign) { password = settings.password }

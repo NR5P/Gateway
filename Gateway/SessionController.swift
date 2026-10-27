@@ -1,5 +1,7 @@
 import Foundation
+#if os(iOS)
 import UIKit
+#endif
 import WinlinkKit
 
 struct LogLine: Identifiable, Hashable {
@@ -30,6 +32,10 @@ final class SessionController: ObservableObject {
 
     private func append(_ kind: LogLine.Kind, _ text: String) {
         log.append(LogLine(kind: kind, text: text))
+        #if DEBUG
+        // Lets tests and `swift run`-style launches watch a session from the terminal.
+        FileHandle.standardError.write(Data("[session] \(text)\n".utf8))
+        #endif
         if log.count > 2000 { log.removeFirst(log.count - 2000) }
     }
 
@@ -58,9 +64,12 @@ final class SessionController: ObservableObject {
         let cmsPort = UInt16(clamping: settings.cmsPort)
         if kind == .vara { settings.remember(gateway: gateway) }
 
+        #if os(macOS)
+        let modemCommand = settings.modemCommand
+        #endif
         running = true
         progress = nil
-        UIApplication.shared.isIdleTimerDisabled = true
+        keepAwake(true)
         task = Task {
             do {
                 let target: String
@@ -72,7 +81,11 @@ final class SessionController: ObservableObject {
                     let m = VARAModem(config: cfg)
                     m.onEvent = { e in Task { @MainActor in self.modemEvent(e) } }
                     modem = m
+                    #if os(macOS)
+                    try await ModemLauncher.shared.open(m, commandLine: modemCommand) { self.append(.info, $0) }
+                    #else
                     try await m.open()
+                    #endif
                     append(.info, "Modem: \(m.version)")
                     status = "Calling \(gateway)"
                     append(.info, "Calling \(gateway) on VARA \(cfg.mode.rawValue)" + (cfg.bandwidth.map { " \($0) Hz" } ?? ""))
@@ -91,7 +104,7 @@ final class SessionController: ObservableObject {
                 append(.info, status)
 
                 let session = B2FSession(mycall: mycall, targetcall: target, locator: locator, mailbox: mailbox)
-                session.userAgent = .init(name: "XaraMail", version: Bundle.main.shortVersion)
+                session.userAgent = .init(name: "Gateway", version: Bundle.main.shortVersion)
                 session.password = { addr in addr.addr == mycall && !password.isEmpty ? password : nil }
                 session.onEvent = { e in Task { @MainActor in self.sessionEvent(e) } }
                 let stats = try await session.exchange(conn)
@@ -112,9 +125,27 @@ final class SessionController: ObservableObject {
             stream = nil
             progress = nil
             running = false
-            UIApplication.shared.isIdleTimerDisabled = false
+            keepAwake(false)
             store.reload()
         }
+    }
+
+    #if os(macOS)
+    private var activity: NSObjectProtocol?
+    #endif
+
+    /// Keeps the screen (iOS) or the Mac (no idle sleep or App Nap) awake during a session.
+    private func keepAwake(_ on: Bool) {
+        #if os(iOS)
+        UIApplication.shared.isIdleTimerDisabled = on
+        #else
+        if on {
+            activity = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .idleSystemSleepDisabled], reason: "Winlink session")
+        } else if let a = activity {
+            ProcessInfo.processInfo.endActivity(a)
+            activity = nil
+        }
+        #endif
     }
 
     /// Stops at once: ABORT to the modem (drops the RF link) or closes the socket.
