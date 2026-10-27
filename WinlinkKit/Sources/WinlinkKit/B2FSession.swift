@@ -85,6 +85,9 @@ public final class B2FSession {
     public let locator: String
     public var isMaster = false
     public var motd: [String] = []
+    /// Send ";FW:" in the handshake. A CMS-like master leaves it out, which tells the
+    /// client it may hand over mail for anyone.
+    public var announceForwarders = true
     public var userAgent = UserAgent(name: "XaraMail", version: "1.0")
     /// The Winlink password for an address (the first is mycall). Nil means none known.
     public var password: (Address) -> String? = { _ in nil }
@@ -233,7 +236,8 @@ public final class B2FSession {
                 out += " \(addr.addr)"
             }
         }
-        var lines = [out, "[\(userAgent.name)-\(userAgent.version)-\(B2FSession.localSID)]"]
+        var lines = announceForwarders ? [out] : []
+        lines.append("[\(userAgent.name)-\(userAgent.version)-\(B2FSession.localSID)]")
         if let c = challenge {
             guard let pw = password(localForwarders[0]), !pw.isEmpty else { throw B2FError.passwordRequired }
             lines.append(";PR: \(SecureLogin.response(challenge: c, password: pw))")

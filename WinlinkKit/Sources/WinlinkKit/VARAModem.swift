@@ -298,7 +298,7 @@ public final class VARAModem: @unchecked Sendable {
             return conn
         } catch {
             linkGone()
-            try? await command("LISTEN OFF")
+            _ = try? await command("LISTEN OFF")
             throw error
         }
     }
