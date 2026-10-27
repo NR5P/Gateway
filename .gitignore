@@ -1,0 +1,9 @@
+.DS_Store
+.build/
+.swiftpm/
+DerivedData/
+build/
+xcuserdata/
+*.xcuserstate
+tools/xara-airlink/target/
+tools/xara-airlink/Cargo.lock

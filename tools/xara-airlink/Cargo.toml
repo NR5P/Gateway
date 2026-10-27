@@ -1,0 +1,15 @@
+[package]
+name = "xara-airlink"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Two xara modems wired back to back through simulated audio, each with real VARA TCP ports"
+
+# Expects the xara source tree next to this repository (~/Desktop/xara).
+[dependencies]
+xara = { path = "../../../xara/crates/xara", default-features = false }
+xara-arq = { path = "../../../xara/crates/xara-arq" }
+xara-host = { path = "../../../xara/crates/xara-host" }
+xara-phy = { path = "../../../xara/crates/xara-phy" }
+
+[workspace]
