@@ -127,17 +127,39 @@ final class RigController: ObservableObject {
     }
 
     /// Before a call: the gateway's dial frequency and the data mode.
+    /// The mode goes first: some radios (the FTDX3000 through hamlib) move the VFO when they
+    /// switch into a data mode, which would leave the call hundreds of Hz off the gateway.
+    /// The frequency is then read back and set again if the radio is not on it.
     func prepare(settings: AppSettings, frequency: Int?, mode: RigMode) async throws {
         let r = try await open(settings: settings)
-        if let hz = frequency {
-            try await r.setFrequency(hz)
-            log(.info, "Radio: \(DialFrequency.format(hz)) MHz")
-        }
+        let before = try? await r.status()
+        log(.info, "Radio: was \(describe(before))")
         if settings.rigSetDataMode {
             try await r.setMode(mode)
-            log(.info, "Radio: \(mode.rawValue)")
+            log(.info, "Radio: set \(mode.rawValue)")
         }
-        status = try await r.status()
+        if let hz = frequency {
+            try await r.setFrequency(hz)
+            log(.info, "Radio: set \(DialFrequency.format(hz)) MHz")
+        }
+        try? await Task.sleep(for: .milliseconds(300))
+        var now = try await r.status()
+        if let hz = frequency, let got = now.frequency, abs(got - hz) > 10 {
+            log(.error, "Radio: reads \(DialFrequency.format(got)) MHz, \(got - hz) Hz off; setting it again")
+            try await r.setFrequency(hz)
+            try? await Task.sleep(for: .milliseconds(300))
+            now = try await r.status()
+            if let again = now.frequency, abs(again - hz) > 10 {
+                throw RigControlError.offFrequency(wanted: hz, got: again)
+            }
+        }
+        status = now
+        log(.info, "Radio: now \(describe(now))")
+    }
+
+    private func describe(_ s: RigStatus?) -> String {
+        guard let s else { return "unknown" }
+        return "\(s.frequency.map { DialFrequency.format($0) + " MHz" } ?? "? MHz") \(s.mode ?? "?")\(s.transmitting ? " TX" : "")"
     }
 
     /// Starts the antenna tuner. The radio transmits a carrier until it finishes.
@@ -200,11 +222,14 @@ final class RigController: ObservableObject {
 
 enum RigControlError: Error, LocalizedError {
     case off, notFound
+    case offFrequency(wanted: Int, got: Int)
 
     var errorDescription: String? {
         switch self {
         case .off: return "radio control is off"
         case .notFound: return "no radio found (RigHelm or rigctld)"
+        case let .offFrequency(wanted, got):
+            return "the radio stays on \(DialFrequency.format(got)) MHz, not \(DialFrequency.format(wanted)) MHz"
         }
     }
 }

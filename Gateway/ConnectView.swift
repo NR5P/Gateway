@@ -284,7 +284,7 @@ struct LogView: View {
             List(session.log) { l in
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(l.time, format: .dateTime.hour().minute().second()).foregroundStyle(.secondary)
-                    Text(prefix(l.kind)).foregroundStyle(color(l.kind))
+                    Text(l.prefix).foregroundStyle(color(l.kind))
                     Text(l.text).foregroundStyle(color(l.kind)).textSelection(.enabled)
                 }
                 .font(.caption.monospaced())
@@ -300,21 +300,10 @@ struct LogView: View {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
                     Toggle("Show modem commands", isOn: $session.showModemTraffic)
-                    ShareLink(item: session.log.map { "\($0.time.ISO8601Format()) \(prefix($0.kind)) \($0.text)" }.joined(separator: "\n"))
+                    ShareLink(item: session.log.map { "\($0.time.ISO8601Format()) \($0.prefix) \($0.text)" }.joined(separator: "\n"))
                     Button("Clear", role: .destructive) { session.clearLog() }
                 } label: { Image(systemName: "ellipsis.circle") }
             }
-        }
-    }
-
-    private func prefix(_ k: LogLine.Kind) -> String {
-        switch k {
-        case .sent: return ">"
-        case .received: return "<"
-        case .modemSent: return "»"
-        case .modemReceived: return "«"
-        case .info: return "·"
-        case .error: return "!"
         }
     }
 

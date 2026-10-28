@@ -10,6 +10,54 @@ struct LogLine: Identifiable, Hashable {
     let time = Date()
     let kind: Kind
     let text: String
+
+    var prefix: String {
+        switch kind {
+        case .sent: return ">"
+        case .received: return "<"
+        case .modemSent: return "»"
+        case .modemReceived: return "«"
+        case .info: return "·"
+        case .error: return "!"
+        }
+    }
+}
+
+/// Every session line, every modem command (PTT and BUFFER too) and every radio command, kept
+/// in Library/Logs/Gateway/session.log (~/Library/Logs on the Mac), so a failed call can be
+/// read afterwards. Kept to about 5 MB: the previous file is session.1.log.
+enum SessionLogFile {
+    static let url: URL = {
+        let dir = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0].appendingPathComponent("Logs/Gateway")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("session.log")
+    }()
+    private static let queue = DispatchQueue(label: "gateway.sessionlog")
+    private static let stamp: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
+        return f
+    }()
+
+    static func write(_ prefix: String, _ text: String, at time: Date = Date()) {
+        let line = "\(stamp.string(from: time)) \(prefix) \(text)\n"
+        queue.async {
+            let fm = FileManager.default
+            if let size = (try? fm.attributesOfItem(atPath: url.path))?[.size] as? Int, size > 5_000_000 {
+                let old = url.deletingLastPathComponent().appendingPathComponent("session.1.log")
+                try? fm.removeItem(at: old)
+                try? fm.moveItem(at: url, to: old)
+            }
+            if let h = try? FileHandle(forWritingTo: url) {
+                h.seekToEndOfFile()
+                h.write(Data(line.utf8))
+                try? h.close()
+            } else {
+                try? Data(line.utf8).write(to: url)
+            }
+        }
+    }
 }
 
 /// Runs one connection at a time: dial (VARA or telnet), exchange messages, hang up.
@@ -37,7 +85,9 @@ final class SessionController: ObservableObject {
     func clearLog() { log.removeAll() }
 
     func append(_ kind: LogLine.Kind, _ text: String) {
-        log.append(LogLine(kind: kind, text: text))
+        let line = LogLine(kind: kind, text: text)
+        log.append(line)
+        SessionLogFile.write(line.prefix, text, at: line.time)
         #if DEBUG
         // Lets tests and `swift run`-style launches watch a session from the terminal.
         FileHandle.standardError.write(Data("[session] \(text)\n".utf8))
@@ -84,6 +134,9 @@ final class SessionController: ObservableObject {
         self.rig = useRig ? rig : nil
         rigKeysPTT = useRig && settings.rigKeysPTT
         terminal = ""
+        append(.info, "Session: \(kind.rawValue) \(answering ? "listening" : target) as \(mycall)"
+            + (kind.usesRadio ? ", modem \(cfg.host):\(cfg.commandPort) \(cfg.mode.rawValue)\(cfg.bandwidth.map { " \($0)" } ?? ""), dial \(dial.map { DialFrequency.format($0) + " MHz" } ?? "not set")"
+                + ", radio \(useRig ? settings.rigMode.rawValue : "off")\(useRig ? (settings.rigKeysPTT ? ", Gateway keys PTT" : ", modem keys PTT") : "")" : ""))
 
         #if os(macOS)
         let modemCommand = settings.modemCommand
@@ -171,6 +224,9 @@ final class SessionController: ObservableObject {
                 append(.error, status)
             }
             self.rig?.sessionEnded()
+            if let s = self.rig?.status, let hz = s.frequency {
+                append(.info, "Radio at the end: \(DialFrequency.format(hz)) MHz \(s.mode ?? "")")
+            }
             await modem?.close()
             modem = nil
             stream = nil
@@ -273,6 +329,9 @@ final class SessionController: ObservableObject {
         case let .line(l, outbound):
             if showModemTraffic && !l.hasPrefix("PTT ") && !l.hasPrefix("BUFFER") && l != "IAMALIVE" {
                 append(outbound ? .modemSent : .modemReceived, l)
+            } else {
+                // The file keeps what the screen leaves out.
+                SessionLogFile.write(outbound ? "»" : "«", l)
             }
         case let .state(s):
             linkState = s
