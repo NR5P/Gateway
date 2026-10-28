@@ -194,7 +194,9 @@
 				INFOPLIST_FILE = Config/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Gateway;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "The local network is used to reach a VARA modem (xara or VARA) running on another computer.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "The local network is used to reach a VARA modem (xara or VARA) and to find and control your radio (RigHelm or rigctld) on another computer.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Your location goes into a Winlink position report only when you ask for one.";
+				INFOPLIST_KEY_NSLocationUsageDescription = "Your location goes into a Winlink position report only when you ask for one.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -231,7 +233,9 @@
 				INFOPLIST_FILE = Config/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Gateway;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "The local network is used to reach a VARA modem (xara or VARA) running on another computer.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "The local network is used to reach a VARA modem (xara or VARA) and to find and control your radio (RigHelm or rigctld) on another computer.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Your location goes into a Winlink position report only when you ask for one.";
+				INFOPLIST_KEY_NSLocationUsageDescription = "Your location goes into a Winlink position report only when you ask for one.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

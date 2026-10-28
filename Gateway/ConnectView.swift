@@ -5,29 +5,47 @@ struct ConnectView: View {
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var store: MailStore
     @EnvironmentObject var session: SessionController
+    @EnvironmentObject var rig: RigController
 
     var body: some View {
         NavigationStack {
             Form {
                 Section {
-                    Picker("Transport", selection: Binding(get: { settings.transportKind }, set: { settings.transportKind = $0 })) {
-                        Text("VARA (radio)").tag(TransportKind.vara)
+                    Picker("Connect to", selection: Binding(get: { settings.transportKind }, set: { settings.transportKind = $0 })) {
+                        Text("RMS gateway (VARA)").tag(TransportKind.vara)
+                        Text("Station, P2P (VARA)").tag(TransportKind.p2p)
+                        Text("Listen for P2P calls").tag(TransportKind.listen)
+                        Text("Terminal: BBS, node or chat").tag(TransportKind.terminal)
                         Text("Telnet (internet)").tag(TransportKind.telnet)
                     }
-                    .pickerStyle(.segmented)
+                    .disabled(session.running)
+                } footer: {
+                    Text(kindHelp)
                 }
-                if settings.transportKind == .vara {
-                    Section("RMS gateway") {
-                        TextField("RMS call sign, e.g. W1AW-10", text: $settings.gateway)
-                            .input(.callsign)
-                        if !settings.recentGateways.isEmpty {
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack {
-                                    ForEach(settings.recentGateways, id: \.self) { g in
-                                        Button(g) { settings.gateway = g }.buttonStyle(.bordered).font(.caption)
+                if settings.transportKind.usesRadio {
+                    Section(settings.transportKind == .vara ? "RMS gateway" : "Station") {
+                        switch settings.transportKind {
+                        case .vara:
+                            TextField("RMS call sign, e.g. W1AW-10", text: $settings.gateway)
+                                .input(.callsign)
+                            if !settings.recentGateways.isEmpty {
+                                ScrollView(.horizontal, showsIndicators: false) {
+                                    HStack {
+                                        ForEach(settings.recentGateways, id: \.self) { g in
+                                            Button(g) { settings.select(gateway: g) }.buttonStyle(.bordered).font(.caption)
+                                        }
                                     }
                                 }
                             }
+                        case .p2p:
+                            TextField("Their call sign", text: $settings.peer).input(.callsign)
+                        case .terminal:
+                            Toggle("Wait for a call", isOn: $settings.terminalAnswer)
+                            if !settings.terminalAnswer {
+                                TextField("Call sign of the BBS, node or station", text: $settings.peer).input(.callsign)
+                            }
+                        default:
+                            LabeledContent("Answering as", value: settings.mycall.isEmpty ? "—" : settings.mycall)
                         }
                         Picker("Mode", selection: Binding(get: { settings.mode }, set: { settings.mode = $0 })) {
                             Text("VARA HF").tag(VARAMode.hf)
@@ -63,14 +81,22 @@ struct ConnectView: View {
                         Text("Telnet goes over the internet straight to the Winlink CMS. No radio involved.")
                     }
                 }
+                if settings.transportKind == .terminal {
+                    TerminalSection()
+                }
                 Section {
                     if session.running {
+                        if session.terminalLinked {
+                            Button { session.hangUp() } label: {
+                                Label("Disconnect", systemImage: "phone.down").frame(maxWidth: .infinity)
+                            }
+                        }
                         Button(role: .destructive) { session.abort() } label: {
-                            Label("Abort", systemImage: "xmark.octagon").frame(maxWidth: .infinity)
+                            Label(listening ? "Stop listening" : "Abort", systemImage: "xmark.octagon").frame(maxWidth: .infinity)
                         }
                     } else {
-                        Button { session.start(settings: settings, store: store) } label: {
-                            Label("Connect", systemImage: "antenna.radiowaves.left.and.right").frame(maxWidth: .infinity)
+                        Button { session.start(settings: settings, store: store, rig: rig) } label: {
+                            Label(listening ? "Listen" : "Connect", systemImage: listening ? "ear" : "antenna.radiowaves.left.and.right").frame(maxWidth: .infinity)
                         }
                         .disabled(settings.mycall.isEmpty)
                     }
@@ -95,6 +121,20 @@ struct ConnectView: View {
         }
     }
 
+    private var listening: Bool {
+        settings.transportKind == .listen || (settings.transportKind == .terminal && settings.terminalAnswer)
+    }
+
+    private var kindHelp: String {
+        switch settings.transportKind {
+        case .vara: return "Sends your Outbox and downloads your mail through a gateway. Find one on the Stations tab."
+        case .p2p: return "Swaps messages straight with another station, no gateway or internet: only mail addressed to their call sign goes."
+        case .listen: return "Waits for other stations to call you P2P and swaps messages with each caller until you stop."
+        case .terminal: return "Type to a packet BBS or BPQ node, or chat with another operator who is listening in Terminal mode."
+        case .telnet: return "Over the internet straight to the Winlink CMS. No radio involved."
+        }
+    }
+
     private var stateText: String {
         switch session.linkState {
         case .closed: return "modem not open"
@@ -103,6 +143,95 @@ struct ConnectView: View {
         case let .connected(_, a, w): return "linked \(a) \(w)"
         case .disconnecting: return "disconnecting"
         }
+    }
+}
+
+/// Dial frequency, what the radio is doing, and the tuner.
+struct RadioSection: View {
+    @EnvironmentObject var settings: AppSettings
+    @EnvironmentObject var session: SessionController
+    @EnvironmentObject var rig: RigController
+
+    var body: some View {
+        Section {
+            TextField("Dial frequency, kHz (e.g. 14105.0)", text: $settings.dialFrequency)
+                .input(.plain)
+            if let name = rig.connected {
+                HStack(spacing: 12) {
+                    Text(rig.status.frequency.map(DialFrequency.format) ?? "—").font(.body.monospacedDigit())
+                    Text(rig.status.mode ?? "").font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Indicator(label: "TX", on: rig.status.transmitting, color: .red)
+                }
+                .accessibilityLabel("Radio \(name)")
+                HStack {
+                    Button("Set frequency") {
+                        Task {
+                            guard let hz = DialFrequency.parse(settings.dialFrequency) else { return }
+                            try? await rig.prepare(settings: settings, frequency: hz, mode: settings.mode == .fm ? .dataFM : .dataUSB)
+                        }
+                    }
+                    .disabled(DialFrequency.parse(settings.dialFrequency) == nil || session.running)
+                    Spacer()
+                    Button { Task { await rig.tune(settings: settings) } } label: { Label("Tune", systemImage: "dial.medium") }
+                        .disabled(session.running)
+                }
+                .buttonStyle(.bordered)
+            } else {
+                Button {
+                    Task { try? await rig.open(settings: settings) }
+                } label: {
+                    HStack {
+                        Label(rig.scanning ? "Looking for the radio…" : "Find radio", systemImage: "magnifyingglass")
+                        if rig.scanning { Spacer(); ProgressView() }
+                    }
+                }
+                .disabled(rig.scanning)
+            }
+            if !rig.message.isEmpty {
+                Text(rig.message).font(.caption).foregroundStyle(.secondary)
+            }
+        } header: {
+            Text("Radio")
+        } footer: {
+            Text(rig.connected.map { "\($0). Gateway sets the frequency\(settings.rigSetDataMode ? " and data mode" : "") before calling\(settings.rigKeysPTT ? " and keys the radio when the modem transmits" : "")." }
+                 ?? "Finds RigHelm on this device or your network, or a rigctld. Leave the frequency empty to call on whatever the radio is tuned to.")
+        }
+    }
+}
+
+struct TerminalSection: View {
+    @EnvironmentObject var session: SessionController
+    @State private var line = ""
+
+    var body: some View {
+        Section("Terminal") {
+            ScrollViewReader { proxy in
+                ScrollView {
+                    Text(session.terminal.isEmpty ? "Nothing yet." : session.terminal)
+                        .font(.caption.monospaced())
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                    Color.clear.frame(height: 1).id("end")
+                }
+                .frame(minHeight: 180, maxHeight: 320)
+                .onChange(of: session.terminal) { proxy.scrollTo("end", anchor: .bottom) }
+            }
+            HStack {
+                TextField(session.terminalLinked ? "Type and press Return" : "Not connected", text: $line)
+                    .input(.plain)
+                    .onSubmit(send)
+                Button(action: send) { Image(systemName: "paperplane.fill") }
+                    .buttonStyle(.borderless)
+            }
+            .disabled(!session.terminalLinked)
+        }
+    }
+
+    private func send() {
+        guard session.terminalLinked else { return }
+        session.sendTerminal(line)
+        line = ""
     }
 }
 
@@ -203,6 +332,7 @@ struct SettingsView: View {
                 } footer: {
                     Text("Stored in the iOS Keychain on this device only. Used to answer the gateway's secure login challenge; the password itself is never sent.")
                 }
+                RigSettingsSection()
                 Section {
                     TextField("Host", text: $settings.modemHost)
                         .input(.url)
@@ -230,6 +360,7 @@ struct SettingsView: View {
                     Text("When the modem host is 127.0.0.1 and nothing answers, Gateway opens Xara.app (xara://start) or, if it is not installed, runs this command. {call} and {port} are filled in; name your radio's audio interface (xara --list-devices). Output goes to ~/Library/Logs/Gateway/xara.log.")
                 }
                 #endif
+                APIKeySection()
                 Section("Winlink CMS (telnet)") {
                     TextField("Host", text: $settings.cmsHost)
                         .input(.url)
@@ -245,5 +376,105 @@ struct SettingsView: View {
             .onAppear { password = settings.password }
             .onChange(of: settings.callsign) { password = settings.password }
         }
+    }
+}
+
+struct RigSettingsSection: View {
+    @EnvironmentObject var settings: AppSettings
+    @EnvironmentObject var rig: RigController
+    @State private var password = ""
+
+    var body: some View {
+        Section {
+            Picker("Radio control", selection: Binding(get: { settings.rigMode }, set: {
+                settings.rigMode = $0
+                if $0 == .righelm { settings.rigPort = Int(RigHelmRig.defaultPort) }
+                if $0 == .rigctld { settings.rigPort = Int(RigctldRig.defaultPort) }
+                rig.disconnect()
+            })) {
+                ForEach(RigControlMode.allCases) { Text($0.label).tag($0) }
+            }
+            if settings.rigMode == .righelm || settings.rigMode == .rigctld {
+                TextField("Host", text: $settings.rigHost).input(.url)
+                TextField("Port", value: $settings.rigPort, format: .number.grouping(.never)).input(.number)
+            }
+            if settings.rigMode == .auto {
+                ForEach(rig.endpoints) { e in
+                    HStack {
+                        VStack(alignment: .leading) {
+                            Text(e.title)
+                            Text("\(e.host):\(e.port)" + (e.kind == .righelm ? " · radio \(e.radio)" + (e.auth ? "" : " · receive only (no password)") : ""))
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        if e.id == settings.rigLastEndpoint { Image(systemName: "checkmark").foregroundStyle(.tint) }
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        settings.rigLastEndpoint = e.id
+                        rig.disconnect()
+                    }
+                }
+                Button(rig.scanning ? "Searching…" : "Search for radios") { Task { await rig.scan(settings: settings) } }
+                    .disabled(rig.scanning)
+            }
+            if settings.rigMode != .off {
+                if settings.rigMode != .rigctld {
+                    SecureField("RigHelm password", text: $password)
+                        .input(.plain)
+                        .onSubmit { settings.rigPassword = password; rig.disconnect() }
+                    Button("Save RigHelm password") { settings.rigPassword = password; rig.disconnect() }
+                        .disabled(password == settings.rigPassword)
+                }
+                Toggle("Key the radio when the modem transmits", isOn: $settings.rigKeysPTT)
+                Toggle("Set data mode (DATA-U / DATA-FM)", isOn: $settings.rigSetDataMode)
+            }
+        } header: {
+            Text("Radio control")
+        } footer: {
+            #if os(macOS)
+            Text("Run RigHelm on this Mac (it finds the radio on USB) or on the computer the radio is plugged into; Gateway finds it. rigctld works too. Transmitting through RigHelm needs its password and remote transmit allowed. Turn off keying if xara keys the radio itself (--ptt rts/cm108/rigctld).")
+            #else
+            Text("iOS gives apps no USB serial access, so the radio is reached over the network: RigHelm on the computer it is plugged into (found automatically), or rigctld. Transmitting through RigHelm needs its password and remote transmit allowed. Turn off keying if the modem keys the radio itself.")
+            #endif
+        }
+        .onAppear {
+            password = settings.rigPassword
+            if settings.rigMode == .auto && rig.endpoints.isEmpty { Task { await rig.scan(settings: settings) } }
+        }
+    }
+}
+
+struct APIKeySection: View {
+    @EnvironmentObject var settings: AppSettings
+    @EnvironmentObject var gateways: GatewayStore
+    @State private var key = ""
+
+    var body: some View {
+        Section {
+            SecureField("Winlink API key", text: $key)
+                .input(.plain)
+                .onSubmit { settings.winlinkAPIKey = key }
+            Toggle("Update automatically (daily)", isOn: $settings.gatewayAutoUpdate)
+            Button {
+                settings.winlinkAPIKey = key
+                Task { await gateways.refresh(key: key) }
+            } label: {
+                HStack {
+                    Text("Update now")
+                    if gateways.refreshing { Spacer(); ProgressView() }
+                }
+            }
+            .disabled(key.isEmpty || gateways.refreshing)
+            if !gateways.message.isEmpty { Text(gateways.message).font(.caption).foregroundStyle(.red) }
+        } header: {
+            Text("Gateway list")
+        } footer: {
+            Text((gateways.downloaded
+                  ? "\(gateways.gateways.count) VARA gateways, downloaded \(gateways.updated?.formatted(date: .abbreviated, time: .shortened) ?? "")"
+                  : "\(gateways.gateways.count) VARA gateways from the list built into the app (\(gateways.updated?.formatted(date: .abbreviated, time: .omitted) ?? ""))")
+                 + ". The last list downloaded is kept on this device, so Stations works with no internet. Downloading from api.winlink.org needs an API key, which the Winlink Development Team issues for each program: ask them for one and enter it here.")
+        }
+        .onAppear { key = settings.winlinkAPIKey }
     }
 }

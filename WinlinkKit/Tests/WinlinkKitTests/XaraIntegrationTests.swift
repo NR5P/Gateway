@@ -101,4 +101,52 @@ final class XaraIntegrationTests: XCTestCase {
         await gwModem.close()
         print(clEvents.lines.filter { !$0.contains("PTT") && !$0.contains("BITRATE") && !$0.hasPrefix("< SN") }.joined(separator: "\n"))
     }
+
+    /// P2P as the app runs it: the listener answers as master and announces its call, so the
+    /// caller learns which mail to hand over; then a keyboard (terminal) link both ways.
+    func testP2PAndTerminalOverXaraAirlink() async throws {
+        let ports = try port("XARA_AIRLINK")
+        let bModem = VARAModem(config: VARAConfig(commandPort: ports[1], mycall: "N2TST"))
+        let aModem = VARAModem(config: VARAConfig(commandPort: ports[0], mycall: "N0TST"))
+        try await bModem.open()
+        try await aModem.open()
+        let aBox = MemoryMailbox(out: [makeMessage(from: "N0TST", to: "N2TST", subject: "P2P hello", body: "Phone to phone\n73")])
+        let bBox = MemoryMailbox(out: [makeMessage(from: "N2TST", to: "N0TST", subject: "P2P reply", body: "Got it")])
+
+        let listener = Task { () -> TrafficStats in
+            let link = try await bModem.accept(timeout: 120)
+            XCTAssertEqual(link.remote, "N0TST")
+            let s = B2FSession(mycall: "N2TST", targetcall: link.remote, locator: "EM10", mailbox: bBox)
+            s.isMaster = true
+            let stats = try await s.exchange(link)
+            await bModem.disconnect(timeout: 30)
+            return stats
+        }
+        let link = try await aModem.connect(to: "N2TST")
+        let caller = B2FSession(mycall: "N0TST", targetcall: "N2TST", locator: "EM10", mailbox: aBox)
+        _ = try await caller.exchange(link)
+        _ = try await listener.value
+        XCTAssertEqual(caller.remoteForwarders.map(\.addr), ["N2TST"])
+        XCTAssertEqual(bBox.inbox.map(\.subject), ["P2P hello"])
+        XCTAssertEqual(aBox.inbox.map(\.subject), ["P2P reply"])
+        await aModem.disconnect(timeout: 30)
+
+        // Terminal: text typed on one side arrives on the other, CR-terminated.
+        let answer = Task { () -> String in
+            let l = try await bModem.accept(timeout: 120)
+            let rd = StreamReader(l)
+            let got = String(decoding: try await rd.read(until: 13), as: UTF8.self)
+            try await l.write("hi from N2TST\r")
+            return got
+        }
+        let t = try await aModem.connect(to: "N2TST")
+        try await t.write("hello from N0TST\r")
+        let echo = String(decoding: try await StreamReader(t).read(until: 13), as: UTF8.self)
+        let heard = try await answer.value
+        XCTAssertEqual(heard, "hello from N0TST\r")
+        XCTAssertEqual(echo, "hi from N2TST\r")
+        await aModem.disconnect(timeout: 30)
+        await aModem.close()
+        await bModem.close()
+    }
 }

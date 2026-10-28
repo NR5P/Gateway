@@ -21,6 +21,18 @@ and model code is shared.
 - **Settings**: call sign, grid locator, Winlink password (Keychain, this device only),
   modem host and command port (data port = command port + 1), CMS host/port; on the Mac, the
   command used to start xara and whether to stop it on quit.
+- **Stations**: every public VARA gateway on a map and in a list (by distance and bearing from
+  your grid), filtered by VARA HF/FM and band. Tap a channel and the radio goes to its dial
+  frequency and data mode; *Connect* tunes and calls it.
+- **Radio control**: finds the radio by itself (RigHelm on this device or the LAN, or a hamlib
+  `rigctld`), sets the gateway's dial frequency and the data mode before calling, keys the
+  transmitter when the modem says `PTT ON`, and starts the antenna tuner.
+- **P2P**: call another station directly, or listen for P2P calls, and swap messages with no
+  gateway or internet. Only mail addressed to the other station goes over the link.
+- **Terminal**: keyboard to keyboard over VARA, for a packet BBS, a BPQ node's BBS and chat, or
+  another operator in Terminal mode.
+- **Position reports**: a message to `QTH` that puts you on the Winlink map (from the grid
+  locator, typed coordinates or the device's location).
 - **Session log**: B2F protocol lines and modem commands, shareable.
 
 Everything is Swift: no Go, Rust or other runtime is linked into either app, and there are no
@@ -59,6 +71,9 @@ WinlinkKit/             Swift package: the protocol and transports
     Proposal.swift        FC proposals, FS answers, secure login response
     B2FSession.swift      the B2F exchange (client or master)
     VARAModem.swift       VARA command/data port client (CONNECT, LISTEN, BUFFER, PTT, ...)
+    Rig/                  rig control: RigHelm's LAN CAT session, hamlib rigctld, discovery
+    GatewayDirectory.swift  the Winlink RMS list (VARA channels, dial frequency), Maidenhead
+    PositionReport.swift  position reports to QTH (ported from wl2k-go)
     TCPStream.swift       Network.framework TCP
     Telnet.swift          CMS telnet login
   Sources/TestGateway/  `test-gateway`: a stand-in RMS that answers VARA calls (macOS)
@@ -104,6 +119,68 @@ iOS asks for local-network permission the first time.
 **Telnet.** Pick *Telnet (internet)* on the Connect tab: it logs in to `server.winlink.org:8772`
 and runs the same exchange with no radio.
 
+## Radio control
+
+Gateway never opens the radio's USB port itself (iOS gives apps no serial access); it controls
+the radio through a program on the computer the radio is plugged into:
+
+- **RigHelm** (recommended): found automatically, on this Mac or anywhere on the LAN, by its UDP
+  4534 beacon (the probe is also sent to every address on the subnet, since iOS only lets an app
+  broadcast with Apple's multicast entitlement). RigHelm detects the radio on USB and speaks to
+  all 32 radios it supports; Gateway uses its `CAT` session on TCP 4533. To transmit, RigHelm
+  needs a password (*Remote (LAN)*), entered in Gateway's Settings, and remote transmit allowed.
+- **rigctld** (hamlib, or RigHelm's own on 127.0.0.1:4532): found on 127.0.0.1 and on the modem's
+  host, or set by hand.
+
+Settings → *Radio control*: Automatic, RigHelm, rigctld or Off. When a session starts, Gateway sets
+the dial frequency (if one is given) and DATA-U / DATA-FM. If the radio cannot be set to the
+given frequency, the call is not made. With *Key the radio when the modem transmits* on, the
+modem's `PTT ON`/`PTT OFF` key the radio over CAT, in order; a PTT held for more than 45 s is
+released, and the radio is un-keyed when the session ends or Gateway quits. RigHelm itself un-keys
+a client that goes quiet for 5 s, which covers an iPhone that is suspended. Turn the keying off if
+the modem keys the radio itself (xara `--ptt rts:…`, `cm108`, `rigctld`).
+
+## Stations
+
+The Stations tab shows the public VARA channels of the Winlink gateway list. A copy is bundled with
+the app (1385 gateways, VARA channels only, taken from the snapshot Pat ships; April 2026). To
+download the current list from `api.winlink.org`, ask the Winlink Development Team for an API key
+for this program and enter it under Settings → *Gateway list* (the key Pat uses is issued to Pat),
+then *Update now*, or leave *Update automatically (daily)* on: it downloads at launch and on the
+Stations tab when the list is over a day old. The last download is kept on the device
+(Application Support/gateways.json), so Stations works offline; a failed download keeps it.
+Frequencies are shown as the radio's dial: the listed (centre) frequency less 1500 Hz on HF, as
+Pat does; FM channels as listed.
+
+## P2P, listening and the terminal
+
+On the Connect tab, *Connect to*:
+
+- **Station, P2P**: calls a call sign and runs the same B2F exchange as with a gateway. The
+  listening station announces its call (`;FW:`), and only Outbox messages addressed to it are sent.
+- **Listen for P2P calls**: `LISTEN ON`, answers each caller as the B2F master, swaps messages,
+  and listens again until *Stop listening*.
+- **Terminal**: calls a BBS, node or station (or, with *Wait for a call*, answers one) and shows
+  the text both ways; lines go out ending in CR. Two Gateways in Terminal mode can chat.
+
+### Phone to phone (iPhone and Android)
+
+xara runs on both: the xara iOS app and xara for Android (`../xara/android`). For a bench test
+without radios, put the phones side by side and let them hear each other:
+
+1. Both phones: xara with the phone's own speaker and mic allowed (*Allow the iPhone speaker and
+   mic* / *Allow the phone's own speaker and mic*; testing only), VARA HF, each with its own call
+   sign. Radio control Off in Gateway.
+2. Android: in xara turn on *Accept clients on the local network*. Gateway has no Android version,
+   so drive that modem from the Mac app: modem host = the Android phone's address, port 8300,
+   *Listen for P2P calls*, **Listen**.
+3. iPhone: compose a message to the Android side's call sign, then *Station, P2P*, that call sign,
+   **Connect**. The message goes over the air from one phone to the other, and anything the Mac
+   has waiting for the iPhone's call comes back.
+
+Both phones need the same VARA mode and bandwidth. Start with the volume about half-way and the
+phones a few cm apart.
+
 ## What was tested, and how
 
 All of this runs on a Mac; `swift test` needs nothing else.
@@ -123,6 +200,13 @@ All of this runs on a Mac; `swift test` needs nothing else.
 | **macOS auto-start** | Nothing on 18300, Xara.app installed (serving 8300 only): Gateway opened `xara://start`, waited 10 s, fell back to `~/.cargo/bin/xara` with the Settings command line, and placed the call. Quitting left xara running; with *Stop xara when Gateway quits* on, it stopped the xara it had started and left Xara.app alone | pass |
 | **macOS cold start of Xara.app** | Run by the user: Xara.app quit, the Mac Gateway (call NR5P, modem 127.0.0.1:8300) pressed Connect. Gateway opened `xara://start`; a fresh Xara.app process came up on 127.0.0.1:8300/8301 and Gateway connected to both ports (checked with `lsof`) | pass |
 | **The app in the iOS simulator** | The iOS app (iPhone 17 Pro, iOS 27) on the airlink against `test-gateway --password SECRET`: the call linked (`CONNECTED N0TST N1RMS 2300`). With a wrong password the gateway refused the secure login and the app said *Login failed*. With the right one, the message composed in the app was delivered, the gateway's message arrived in the Inbox, and the Outbox emptied | pass |
+| Rig control, protocols | Scripted servers: RigHelm login (HMAC proof, `DENIED`), frequency, DATA-U, PTT and un-key on close in FTDX3000 CAT; rigctld Set/Get pairing with requests from several tasks at once, `RPRT -9` (transmit blocked), `T 0` on close; RigHelm beacon parsing | pass |
+| **Rig control vs real hamlib** | RigHelm's FTDX3000 simulator (`righelm-sim`) driven by hamlib's own `rigctld -m 1037`; `RIGCTLD_PORT=14532 swift test`: discovery found it, 14.105.000 MHz, PKTUSB (DATA-U), PTT on/off read back, `G TUNE` | pass |
+| Gateway list | parsing (public VARA only; HF dial = centre − 1500 Hz; bandwidth from the mode name; FM as listed), the bundled list, Maidenhead centre, distance and bearing | pass |
+| Position report | wl2k-go's degree/minute vectors and the message (To `QTH`, Type `Position Report`, body) | pass |
+| Stations tab in the iOS simulator | map with the bundled gateways, tap a marker, channel sheet with dial frequencies and hours | pass |
+| **Tap to tune, in the iOS simulator** | `righelm-sim` (FTDX3000) behind hamlib `rigctld -m 1037` on 127.0.0.1:4532, radio control Automatic: the app found the rigctld by itself; tapping AA0RC's 40 m channel moved the radio from 14.074.000 USB to 7.101.000 PKTUSB (read back with `rigctl`) | pass |
+| **P2P and terminal over a VARA link between two xara modems** | `XARA_AIRLINK=18500,18600 swift test`: the listener answers as master and announces its call (the caller's `remoteForwarders` = the listener), a message each way; then a terminal link, a CR-terminated line each way | pass (~2.5 min) |
 | Builds | `xcodebuild` for macOS, iOS Simulator and an iOS device (signed with team G4GK5372G8) | pass |
 
 ### Running the tests
@@ -175,7 +259,13 @@ handshake, which is why the airlink tool exists.
   run through its `-autoConnect` hook; the same views were driven by hand in the iOS simulator.
 - **Real VARA (Windows).** The client only does what Pat does, and it treats a missing reply to
   `PUBLIC`/`CWID`/`COMPRESSION`/`LISTEN` as harmless, but it was only run against xara.
-- **VARA FM against xara**, P2P sessions from the app, and B2F resume offsets (parsed and honoured
+- **RigHelm's LAN session against a real RigHelm.** Only scripted (the protocol is from RigHelm's
+  `remote.rs` and the iPhone app's client); running righelmd would have used this Mac's own
+  RigHelm configuration. Nor against a real radio.
+- **Downloading the gateway list.** No Winlink API key for this program yet.
+- **Catalog requests (INQUIRY)** are not in the app: the request format could not be confirmed
+  from a source.
+- **VARA FM against xara**, and B2F resume offsets (parsed and honoured
   when sending, never requested when receiving, as in wl2k-go).
 - Gzip (`FD`) proposals are deferred, as in wl2k-go unless its experiment flag is set.
 

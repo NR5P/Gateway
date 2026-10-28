@@ -6,6 +6,7 @@ struct MailboxView: View {
     @EnvironmentObject var store: MailStore
     @EnvironmentObject var settings: AppSettings
     @State private var composing: ComposeDraft?
+    @State private var reportingPosition = false
 
     var body: some View {
         NavigationStack {
@@ -31,8 +32,13 @@ struct MailboxView: View {
                     Button { composing = ComposeDraft() } label: { Image(systemName: "square.and.pencil") }
                         .accessibilityLabel("New message")
                 }
+                ToolbarItem(placement: .automatic) {
+                    Button { reportingPosition = true } label: { Image(systemName: "mappin.and.ellipse") }
+                        .accessibilityLabel("Position report")
+                }
             }
             .sheet(item: $composing) { ComposeView(draft: $0) }
+            .sheet(isPresented: $reportingPosition) { PositionReportView() }
         }
     }
 }
