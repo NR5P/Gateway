@@ -65,6 +65,18 @@ enum AppTab: Hashable { case mail, stations, connect, settings }
 @MainActor
 final class AppNavigation: ObservableObject {
     @Published var tab: AppTab = .mail
+
+    init() {
+        #if DEBUG
+        // Test hook for screenshots: `-startTab stations` opens on that tab.
+        switch UserDefaults.standard.string(forKey: "startTab") {
+        case "stations": tab = .stations
+        case "connect": tab = .connect
+        case "settings": tab = .settings
+        default: break
+        }
+        #endif
+    }
 }
 
 enum StationFilter: String, CaseIterable, Identifiable {
@@ -223,7 +235,7 @@ struct StationsView: View {
                 HStack {
                     VStack(alignment: .leading) {
                         Text(g.callsign).font(.headline)
-                        Text(channels(g).map { "\($0.band) \(DialFrequency.format($0.dial))" }.joined(separator: " · "))
+                        Text(channels(g).map { "\($0.band) \(DialFrequency.format($0.dial))" }.reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }.joined(separator: " · "))
                             .font(.caption).foregroundStyle(.secondary).lineLimit(2)
                     }
                     Spacer()

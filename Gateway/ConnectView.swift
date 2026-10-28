@@ -59,6 +59,9 @@ struct ConnectView: View {
                             }
                         }
                     }
+                    if settings.rigMode != .off {
+                        RadioSection()
+                    }
                     Section {
                         LabeledContent("Modem", value: "\(settings.modemHost):\(settings.modemPort)")
                         HStack(spacing: 16) {
@@ -403,7 +406,9 @@ struct RigSettingsSection: View {
                     HStack {
                         VStack(alignment: .leading) {
                             Text(e.title)
-                            Text("\(e.host):\(e.port)" + (e.kind == .righelm ? " · radio \(e.radio)" + (e.auth ? "" : " · receive only (no password)") : ""))
+                            Text(e.kind == .righelm
+                                 ? "\(e.host):\(e.port) · radio \(e.radio)" + (e.auth ? "" : " · receive only (no password)")
+                                 : e.host == "127.0.0.1" ? "hamlib, on this device" : "hamlib")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
