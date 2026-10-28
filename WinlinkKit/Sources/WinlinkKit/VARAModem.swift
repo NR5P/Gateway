@@ -216,7 +216,11 @@ public final class VARAModem: @unchecked Sendable {
     }
 
     /// Registers a waiter, runs `then` (usually sending a command), and waits for a matching line.
+    /// `ready` is checked under the lock as the waiter goes in, so a line that arrives between the
+    /// caller's own check and the registration is not missed; when it holds, this returns "" at once.
+    /// It runs with the lock held, so it reads the underscored state directly.
     private func waitFor(_ match: @escaping (String) -> Bool, timeout: TimeInterval, what: String,
+                         ready: @escaping () -> Bool = { false },
                          then: @escaping () async throws -> Void) async throws -> String {
         let id = UUID()
         let timer = Task { [weak self] in
@@ -226,14 +230,22 @@ public final class VARAModem: @unchecked Sendable {
         defer { timer.cancel() }
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (c: CheckedContinuation<String, Error>) in
-                let open = lock.withLock { () -> Bool in
-                    guard cmd != nil else { return false }
+                enum Registration { case closed, ready, waiting }
+                let r = lock.withLock { () -> Registration in
+                    guard cmd != nil else { return .closed }
+                    if ready() { return .ready }
                     waiters[id] = Waiter(match: match, cont: c)
-                    return true
+                    return .waiting
                 }
-                guard open else {
+                switch r {
+                case .closed:
                     c.resume(throwing: VARAError.modemClosed)
                     return
+                case .ready:
+                    c.resume(returning: "")
+                    return
+                case .waiting:
+                    break
                 }
                 Task {
                     do { try await then() } catch { self.fail(id, error) }
@@ -343,7 +355,11 @@ public final class VARAModem: @unchecked Sendable {
             guard case .connected = s else { throw StreamError.closed }
             if n < limit { return }
             // Each BUFFER report resets the timeout: the link is alive as long as it drains.
-            _ = try await waitFor({ $0.hasPrefix("BUFFER") || $0 == "DISCONNECTED" }, timeout: timeout, what: "buffer to drain") {}
+            _ = try await waitFor({ $0.hasPrefix("BUFFER") || $0 == "DISCONNECTED" }, timeout: timeout, what: "buffer to drain",
+                                  ready: { [unowned self] in
+                                      guard case .connected = _state else { return true }
+                                      return _buffer < limit
+                                  }) {}
         }
     }
 
