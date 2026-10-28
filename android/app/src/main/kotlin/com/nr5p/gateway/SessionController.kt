@@ -8,6 +8,7 @@ import com.nr5p.winlink.B2FException
 import com.nr5p.winlink.B2FSession
 import com.nr5p.winlink.ByteStream
 import com.nr5p.winlink.CMSTelnet
+import com.nr5p.winlink.LinkSpeed
 import com.nr5p.winlink.Mailbox
 import com.nr5p.winlink.SessionEvent
 import com.nr5p.winlink.VARAConfig
@@ -51,6 +52,10 @@ class SessionController(private val settings: Settings) {
     var busy by mutableStateOf(false); private set
     var linkState: VARALinkState by mutableStateOf(VARALinkState.Closed); private set
     var progress: Progress? by mutableStateOf(null); private set
+    /** The link's current speed level, bitrate and modulation, from the modem's BITRATE lines. */
+    var speed: LinkSpeed? by mutableStateOf(null); private set
+    private var speedMode = VARAMode.HF
+    private var speedBandwidth: String? = null
 
     // Terminal (keyboard to keyboard: a BBS or node, or another operator)
     var terminal by mutableStateOf(""); private set
@@ -99,6 +104,9 @@ class SessionController(private val settings: Settings) {
             host = settings.modemHost.trim(), commandPort = settings.modemPort, mycall = mycall, mode = settings.mode,
             bandwidth = if (settings.mode == VARAMode.HF) settings.bandwidth else null, connectTimeout = 300.0,
         )
+        speedMode = cfg.mode
+        speedBandwidth = cfg.bandwidth
+        speed = null
         val cmsHost = settings.cmsHost.trim()
         val cmsPort = settings.cmsPort
         val useRig = kind.usesRadio && settings.rigMode != RigControlMode.OFF
@@ -293,6 +301,7 @@ class SessionController(private val settings: Settings) {
             }
             is VARAEvent.State -> {
                 linkState = e.state
+                if (e.state is VARALinkState.Connecting || e.state == VARALinkState.Idle || e.state == VARALinkState.Closed) speed = null
                 if (e.state == VARALinkState.Closed) {
                     if (ptt && rigKeysPTT) rig?.followModem(false)
                     ptt = false
@@ -304,6 +313,7 @@ class SessionController(private val settings: Settings) {
                 if (rigKeysPTT) rig?.followModem(e.on)
             }
             is VARAEvent.Busy -> busy = e.on
+            is VARAEvent.Bitrate -> speed = LinkSpeed.parse(e.text, speedMode, speedBandwidth) ?: speed
             else -> {}
         }
     }

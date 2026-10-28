@@ -21,6 +21,8 @@ final class SessionController: ObservableObject {
     @Published private(set) var ptt = false
     @Published private(set) var busy = false
     @Published private(set) var linkState: VARALinkState = .closed
+    /// The link's current speed level, bitrate and modulation, from the modem's BITRATE lines.
+    @Published private(set) var speed: LinkSpeed?
     @Published private(set) var progress: (title: String, sending: Bool, done: Int, total: Int)?
     @Published var showModemTraffic = true
 
@@ -29,6 +31,8 @@ final class SessionController: ObservableObject {
     private var stream: ByteStream?
     private var rig: RigController?
     private var rigKeysPTT = false
+    private var speedMode = VARAMode.hf
+    private var speedBandwidth: String?
 
     func clearLog() { log.removeAll() }
 
@@ -63,6 +67,7 @@ final class SessionController: ObservableObject {
                              mycall: mycall, mode: settings.mode,
                              bandwidth: settings.mode == .hf ? settings.bandwidth : nil)
         cfg.connectTimeout = 300
+        (speedMode, speedBandwidth, speed) = (cfg.mode, cfg.bandwidth, nil)
         let cmsHost = settings.cmsHost
         let cmsPort = UInt16(clamping: settings.cmsPort)
         let useRig = kind.usesRadio && settings.rigMode != .off
@@ -271,6 +276,10 @@ final class SessionController: ObservableObject {
             }
         case let .state(s):
             linkState = s
+            switch s {
+            case .connecting, .idle, .closed: speed = nil
+            default: break
+            }
             if s == .closed {
                 if ptt && rigKeysPTT { rig?.followModem(ptt: false) }
                 ptt = false
@@ -280,6 +289,8 @@ final class SessionController: ObservableObject {
             ptt = on
             if rigKeysPTT { rig?.followModem(ptt: on) }
         case let .busy(on): busy = on
+        case let .bitrate(text):
+            speed = LinkSpeed.parse(text, mode: speedMode, bandwidth: speedBandwidth) ?? speed
         default: break
         }
     }

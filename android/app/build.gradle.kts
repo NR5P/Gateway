@@ -77,4 +77,6 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     // OpenStreetMap tiles for the Stations map (no API key needed).
     implementation("org.osmdroid:osmdroid-android:6.1.20")
+    // Turns photos upright before they are shrunk for the radio.
+    implementation("androidx.exifinterface:exifinterface:1.3.7")
 }

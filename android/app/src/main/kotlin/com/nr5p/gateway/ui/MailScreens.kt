@@ -6,6 +6,7 @@ import android.provider.OpenableColumns
 import android.webkit.MimeTypeMap
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -41,6 +42,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.Inbox
 import androidx.compose.material.icons.filled.Outbox
+import androidx.compose.material.icons.filled.Photo
 import androidx.compose.material.icons.filled.PinDrop
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Upload
@@ -79,6 +81,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.FileProvider
 import com.nr5p.gateway.Folder
 import com.nr5p.gateway.GatewayApplication
+import com.nr5p.gateway.ImageShrinker
 import com.nr5p.gateway.StoredMessage
 import com.nr5p.winlink.Attachment
 import com.nr5p.winlink.Message
@@ -346,6 +349,8 @@ data class ComposeDraft(
 
 /** Attachments travel at a few hundred bytes per second on HF; warn well before they hurt. */
 private const val SIZE_WARNING = 30_000
+/** Beyond this a message takes most of an hour even at good HF speeds, and gateways may refuse it. */
+private const val SIZE_LIMIT = 120_000
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -353,16 +358,38 @@ private fun ComposeDialog(app: GatewayApplication, start: ComposeDraft, dismiss:
     val context = LocalContext.current
     var d by remember { mutableStateOf(start) }
     var error by remember { mutableStateOf<String?>(null) }
-    val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris: List<Uri> ->
-        val added = uris.mapNotNull { u ->
+    var shrunk by remember { mutableStateOf(listOf<String>()) }
+
+    /** Adds a file, renaming it if one of that name is already attached (photo.jpg, photo-2.jpg, ...). */
+    fun attach(file: Attachment): Attachment {
+        var name = file.name
+        val base = name.substringBeforeLast('.', name)
+        val ext = if (name.contains('.')) "." + name.substringAfterLast('.') else ""
+        var n = 2
+        while (d.files.any { it.name == name }) name = "$base-${n++}$ext"
+        val f = Attachment(name, file.data)
+        d = d.copy(files = d.files + f)
+        return f
+    }
+
+    /** Photos are made small enough for the radio; anything else goes as it is. */
+    fun add(uris: List<Uri>) {
+        for (u in uris) {
             val name = context.contentResolver.query(u, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
                 if (c.moveToFirst()) c.getString(0) else null
             } ?: u.lastPathSegment ?: "file"
-            val data = context.contentResolver.openInputStream(u)?.use { it.readBytes() } ?: return@mapNotNull null
-            Attachment(name, data)
+            val data = context.contentResolver.openInputStream(u)?.use { it.readBytes() } ?: continue
+            val r = if (ImageShrinker.isPhoto(context.contentResolver.getType(u))) ImageShrinker.shrink(data) else null
+            if (r != null && r.data.size < data.size) {
+                val f = attach(Attachment(ImageShrinker.jpegName(name), r.data))
+                shrunk = shrunk + "${f.name}: ${byteCount(data.size)} made ${byteCount(r.data.size)}, ${r.width}×${r.height}."
+            } else {
+                attach(Attachment(name, data))
+            }
         }
-        d = d.copy(files = d.files + added)
     }
+    val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris: List<Uri> -> add(uris) }
+    val pickPhotos = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uris: List<Uri> -> add(uris) }
 
     fun split(s: String) = s.split(',', ';', ' ').map { it.trim() }.filter { it.isNotEmpty() }
 
@@ -417,13 +444,31 @@ private fun ComposeDialog(app: GatewayApplication, start: ComposeDraft, dismiss:
                         IconButton({ d = d.copy(files = d.files.filterIndexed { j, _ -> j != i }) }) { Icon(Icons.Default.Close, "Remove ${f.name}") }
                     }
                 }
-                TextButton({ pick.launch(arrayOf("*/*")) }) {
-                    Icon(Icons.Default.Upload, null)
-                    Spacer(Modifier.width(6.dp))
-                    Text("Attach file")
+                Row {
+                    TextButton({ pickPhotos.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) {
+                        Icon(Icons.Default.Photo, null)
+                        Spacer(Modifier.width(6.dp))
+                        Text("Add photo")
+                    }
+                    TextButton({ pick.launch(arrayOf("*/*")) }) {
+                        Icon(Icons.Default.Upload, null)
+                        Spacer(Modifier.width(6.dp))
+                        Text("Attach file")
+                    }
                 }
-                if (total > SIZE_WARNING) {
+                for (line in shrunk) Text(line, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (total > SIZE_LIMIT) {
+                    Text(
+                        "This message is ${byteCount(total)}. That is far too big for a radio link: hours at HF speeds, and Winlink gateways may refuse it.",
+                        color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall,
+                    )
+                } else if (total > SIZE_WARNING) {
                     Text("This message is ${byteCount(total)}. Over HF that can take many minutes.", color = Color(0xFFE65100), style = MaterialTheme.typography.bodySmall)
+                } else if (d.files.isNotEmpty()) {
+                    Text(
+                        "Photos are made smaller for the radio: at most 640 pixels and about 30 KB, with location and other details removed.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp)) }
             }

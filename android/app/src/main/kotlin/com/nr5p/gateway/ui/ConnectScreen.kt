@@ -26,6 +26,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.Hearing
@@ -147,6 +149,7 @@ fun ConnectScreen(app: GatewayApplication, modifier: Modifier) {
                         Spacer(Modifier.weight(1f))
                         Text(stateText(session.linkState), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
+                    session.speed?.let { SpeedRow(it) }
                 }
             } else {
                 section(footer = "Telnet goes over the internet straight to the Winlink CMS. No radio involved.") {
@@ -201,6 +204,25 @@ fun ConnectScreen(app: GatewayApplication, modifier: Modifier) {
                 }
             }
         }
+    }
+}
+
+/** The link's speed as the modem reports it: level, bitrate, waveform, and which way data is going. */
+@Composable
+private fun SpeedRow(s: com.nr5p.winlink.LinkSpeed) {
+    Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+            if (s.transmitting) Icons.Default.ArrowUpward else Icons.Default.ArrowDownward,
+            if (s.transmitting) "Sending" else "Receiving",
+            tint = if (s.transmitting) Color(0xFFE53935) else Color(0xFF43A047),
+            modifier = Modifier.size(18.dp),
+        )
+        Spacer(Modifier.width(8.dp))
+        Column(Modifier.weight(1f)) {
+            Text("Level ${s.level} · ${s.bps} bps", fontFamily = FontFamily.Monospace)
+            s.modulation?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        }
+        Text(if (s.transmitting) "sending" else "receiving", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

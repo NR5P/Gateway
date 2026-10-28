@@ -1,3 +1,4 @@
+import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
 import WinlinkKit
@@ -220,10 +221,14 @@ struct ComposeView: View {
     @Environment(\.dismiss) var dismiss
     @State var draft: ComposeDraft
     @State private var importing = false
+    @State private var photos: [PhotosPickerItem] = []
+    @State private var shrunk: [String] = []
     @State private var error: String?
 
     /// Attachments travel at a few hundred bytes per second on HF; warn well before they hurt.
     private let sizeWarning = 30_000
+    /// Beyond this a message takes most of an hour even at good HF speeds, and gateways may refuse it.
+    private let sizeLimit = 120_000
 
     init(draft: ComposeDraft) { _draft = State(initialValue: draft) }
 
@@ -252,11 +257,20 @@ struct ComposeView: View {
                         }
                     }
                     .onDelete { draft.files.remove(atOffsets: $0) }
+                    PhotosPicker(selection: $photos, matching: .images) { Label("Add photo", systemImage: "photo") }
                     Button { importing = true } label: { Label("Attach file", systemImage: "paperclip") }
                 } footer: {
-                    if totalSize > sizeWarning {
-                        Text("This message is \(ByteCountFormatter.string(fromByteCount: Int64(totalSize), countStyle: .file)). Over HF that can take many minutes.")
-                            .foregroundStyle(.orange)
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(shrunk, id: \.self) { Text($0) }
+                        if totalSize > sizeLimit {
+                            Text("This message is \(Self.bytes(totalSize)). That is far too big for a radio link: hours at HF speeds, and Winlink gateways may refuse it.")
+                                .foregroundStyle(.red)
+                        } else if totalSize > sizeWarning {
+                            Text("This message is \(Self.bytes(totalSize)). Over HF that can take many minutes.")
+                                .foregroundStyle(.orange)
+                        } else if !draft.files.isEmpty {
+                            Text("Photos are made smaller for the radio: at most 640 pixels and about 30 KB, with location and other details removed.")
+                        }
                     }
                 }
                 if let error { Section { Text(error).foregroundStyle(.red) } }
@@ -279,11 +293,48 @@ struct ComposeView: View {
                     let scoped = u.startAccessingSecurityScopedResource()
                     defer { if scoped { u.stopAccessingSecurityScopedResource() } }
                     if let d = try? Data(contentsOf: u) {
-                        draft.files.append(Attachment(name: u.lastPathComponent, data: d))
+                        let type = UTType(filenameExtension: u.pathExtension) ?? .data
+                        if ImageShrinker.isPhoto(type) { attachPhoto(d, name: u.lastPathComponent) } else { attach(Attachment(name: u.lastPathComponent, data: d)) }
+                    }
+                }
+            }
+            .onChange(of: photos) {
+                let items = photos
+                photos = []
+                Task {
+                    for item in items {
+                        if let d = try? await item.loadTransferable(type: Data.self) { attachPhoto(d, name: "photo.jpg") }
                     }
                 }
             }
         }
+    }
+
+    private static func bytes(_ n: Int) -> String { ByteCountFormatter.string(fromByteCount: Int64(n), countStyle: .file) }
+
+    /// Attaches a photo made small enough for the radio (the original if it cannot be read as an image).
+    private func attachPhoto(_ data: Data, name: String) {
+        guard let r = ImageShrinker.shrink(data), r.data.count < data.count else {
+            attach(Attachment(name: name, data: data))
+            return
+        }
+        let a = attach(Attachment(name: ImageShrinker.jpegName(name), data: r.data))
+        shrunk.append("\(a.name): \(Self.bytes(data.count)) made \(Self.bytes(r.data.count)), \(r.width)×\(r.height).")
+    }
+
+    /// Adds a file, renaming it if one of that name is already attached (photo.jpg, photo-2.jpg, ...).
+    @discardableResult
+    private func attach(_ file: Attachment) -> Attachment {
+        var f = file
+        let base = f.name.lastIndex(of: ".").map { String(f.name[..<$0]) } ?? f.name
+        let ext = f.name.lastIndex(of: ".").map { String(f.name[$0...]) } ?? ""
+        var n = 2
+        while draft.files.contains(where: { $0.name == f.name }) {
+            f.name = "\(base)-\(n)\(ext)"
+            n += 1
+        }
+        draft.files.append(f)
+        return f
     }
 
     private static func split(_ s: String) -> [String] {

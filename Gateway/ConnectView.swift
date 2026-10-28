@@ -70,6 +70,9 @@ struct ConnectView: View {
                             Spacer()
                             Text(stateText).font(.caption).foregroundStyle(.secondary)
                         }
+                        if let s = session.speed {
+                            SpeedRow(speed: s)
+                        }
                     } footer: {
                         #if os(macOS)
                         Text("Gateway starts xara on this Mac if it is not running. Or point Settings at a modem elsewhere on your network.")
@@ -235,6 +238,27 @@ struct TerminalSection: View {
         guard session.terminalLinked else { return }
         session.sendTerminal(line)
         line = ""
+    }
+}
+
+/// The link's speed as the modem reports it: level, bitrate, waveform, and which way data is going.
+struct SpeedRow: View {
+    let speed: LinkSpeed
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: speed.transmitting ? "arrow.up.circle.fill" : "arrow.down.circle.fill")
+                .foregroundStyle(speed.transmitting ? Color.red : Color.green)
+                .accessibilityLabel(speed.transmitting ? "Sending" : "Receiving")
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Level \(speed.level) · \(speed.bps) bps").font(.body.monospacedDigit())
+                if let m = speed.modulation {
+                    Text(m).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+            Text(speed.transmitting ? "sending" : "receiving").font(.caption).foregroundStyle(.secondary)
+        }
     }
 }
 
