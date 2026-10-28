@@ -1,11 +1,12 @@
-# Gateway: an open-source Winlink client for iPhone and Mac
+# Gateway: an open-source Winlink client for iPhone, Mac and Android
 
 Gateway sends and receives Winlink radio email. Over the air it talks to a Winlink gateway (RMS)
 through a **VARA modem over TCP**: [xara](../xara) on the same device (`127.0.0.1`: the xara
 iPhone app, or the `xara` command / Xara.app on a Mac), or xara/VARA elsewhere on your network.
 It can also reach the Winlink CMS over the internet by telnet. One SwiftUI target builds both the
 iOS app (`com.nr5p.gateway`) and the macOS app (`com.nr5p.gateway.mac`); all protocol, transport
-and model code is shared.
+and model code is shared. The Android app (`android/`, also `com.nr5p.gateway`) is a Kotlin port
+with the same screens and features; see [Android](#android).
 
 <p>
 <img src="docs/connected.png" width="240" alt="iPhone: Connect screen, linked to a gateway over VARA HF">
@@ -180,6 +181,45 @@ without radios, put the phones side by side and let them hear each other:
 
 Both phones need the same VARA mode and bandwidth. Start with the volume about half-way and the
 phones a few cm apart.
+
+## Android
+
+`android/` is the same app for Android: a Gradle project with two modules.
+
+```
+android/core/   WinlinkKit in plain Kotlin (no Android): LZHUF, messages, B2F, the VARA and
+                telnet transports, the gateway directory, position reports and rig control
+                (RigHelm, rigctld, discovery). Same package layout and names as the Swift code.
+android/app/    Jetpack Compose app: Mail, Stations, Connect and Settings tabs, like iOS
+```
+
+The core tests are the Swift tests ported one for one (the LZHUF reference files are read from
+`WinlinkKit/Tests/WinlinkKitTests/Resources`), plus a scripted VARA modem over real sockets:
+
+```sh
+cd android && ./gradlew :core:test            # 46 tests
+cd android && ./gradlew :app:assembleDebug    # app/build/outputs/apk/debug/app-debug.apk
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+Use Android Studio's JDK (`JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"`).
+
+Differences from the iPhone app:
+
+- **Map:** OpenStreetMap tiles (osmdroid), so no Google Maps API key is needed.
+- **Passwords and the API key** are AES-GCM encrypted with an Android Keystore key, the
+  counterpart of the Keychain items.
+- **RigHelm discovery** takes a Wi-Fi multicast lock while it scans, since Android drops
+  incoming broadcasts without one.
+- **Modem:** there is no xara for Android yet, so point Settings at xara or VARA on another
+  machine. In the emulator the Mac is `10.0.2.2`.
+- The screen stays on during a session, as on iOS; there is no background service.
+
+Tested: the Android app in the emulator against the airlink and `test-gateway --password SECRET`
+(Settings: modem `10.0.2.2:18500`, gateway `N1RMS`). The secure login was accepted, the message
+composed in the app was delivered, the gateway's message arrived in the Inbox, and the Outbox
+emptied. The APK was also installed and launched on a Galaxy S23. As on iOS, no real
+over-the-air session with an RMS has been run.
 
 ## What was tested, and how
 
